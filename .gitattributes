@@ -1,0 +1,4 @@
+﻿# Todo esto acaba en un servidor Linux: saltos de linea LF siempre,
+# aunque se clone en Windows. Sin esto, copia.sh se clona con CRLF y
+# falla con "bad interpreter".
+* text=auto eol=lf

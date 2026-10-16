@@ -1,0 +1,24 @@
+[Unit]
+Description=API de DexClub
+After=network.target postgresql.service
+
+[Service]
+User=<usuario>
+WorkingDirectory=/home/<usuario>/api
+ExecStart=/home/<usuario>/api/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+# Aislamiento: si algún día alguien logra ejecutar código a través de la
+# API, esto limita lo que puede tocar desde dentro.
+NoNewPrivileges=true      # no puede ganar privilegios ni con binarios setuid
+PrivateTmp=true           # su /tmp es suyo, no ve el del resto del sistema
+ProtectSystem=strict      # todo el disco en solo lectura...
+ReadWritePaths=/home/<usuario>/api   # ...salvo su propia carpeta
+ProtectHome=read-only     # no puede escribir en carpetas de usuarios
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,62 @@
+== PUERTOS ==
+Netid State  Recv-Q Send-Q      Local Address:Port Peer Address:PortProcess                                                                         
+udp   UNCONN 0      0              127.0.0.54:53        0.0.0.0:*    users:(("systemd-resolve",pid=486,fd=18))                                      
+udp   UNCONN 0      0           127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=486,fd=16))                                      
+udp   UNCONN 0      0      <IP>%ens6:68                 0.0.0.0:*    users:(("systemd-network",pid=911,fd=33))                                      
+udp   UNCONN 0      0               127.0.0.1:323       0.0.0.0:*    users:(("chronyd",pid=1049,fd=4))                                              
+udp   UNCONN 0      0                   [::1]:323          [::]:*    users:(("chronyd",pid=1049,fd=5))                                              
+tcp   LISTEN 0      200             127.0.0.1:5432      0.0.0.0:*    users:(("postgres",pid=1057,fd=6))                                             
+tcp   LISTEN 0      4096        127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=486,fd=17))                                      
+tcp   LISTEN 0      2048            127.0.0.1:8000      0.0.0.0:*    users:(("uvicorn",pid=1286,fd=6))                                              
+tcp   LISTEN 0      4096              0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=40630,fd=3),("systemd",pid=1,fd=84))                        
+tcp   LISTEN 0      511               0.0.0.0:80        0.0.0.0:*    users:(("nginx",pid=1004,fd=6),("nginx",pid=1003,fd=6),("nginx",pid=1002,fd=6))
+tcp   LISTEN 0      511               0.0.0.0:443       0.0.0.0:*    users:(("nginx",pid=1004,fd=5),("nginx",pid=1003,fd=5),("nginx",pid=1002,fd=5))
+tcp   LISTEN 0      4096           127.0.0.54:53        0.0.0.0:*    users:(("systemd-resolve",pid=486,fd=19))                                      
+tcp   LISTEN 0      4096                 [::]:22           [::]:*    users:(("sshd",pid=40630,fd=4),("systemd",pid=1,fd=85))                        
+
+== CORTAFUEGOS ==
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+Anywhere                   REJECT IN   118.196.x.x                # by Fail2Ban after 3 attempts against sshd
+Anywhere                   REJECT IN   129.121.x.x                # by Fail2Ban after 3 attempts against sshd
+Anywhere                   REJECT IN   45.148.x.x                 # by Fail2Ban after 3 attempts against sshd
+Anywhere                   REJECT IN   2.57.x.x                   # by Fail2Ban after 3 attempts against sshd
+Anywhere                   REJECT IN   88.205.x.x                 # by Fail2Ban after 3 attempts against sshd
+Anywhere                   REJECT IN   182.43.x.x                 # by Fail2Ban after 3 attempts against sshd
+22/tcp (OpenSSH)           ALLOW IN    Anywhere                  
+80/tcp                     ALLOW IN    Anywhere                  
+443/tcp                    ALLOW IN    Anywhere                  
+22/tcp (OpenSSH (v6))      ALLOW IN    Anywhere (v6)             
+80/tcp (v6)                ALLOW IN    Anywhere (v6)             
+443/tcp (v6)               ALLOW IN    Anywhere (v6)             
+
+
+== SSH EFECTIVO ==
+maxauthtries 3
+permitrootlogin no
+passwordauthentication no
+allowusers <usuario>
+
+== FAIL2BAN ==
+Status for the jail: sshd
+|- Filter
+|  |- Currently failed:	2
+|  |- Total failed:	2037
+|  `- Journal matches:	_SYSTEMD_UNIT=ssh.service + _COMM=sshd
+`- Actions
+   |- Currently banned:	6
+   |- Total banned:	267
+   `- Banned IP list:	182.43.x.x 88.205.x.x 2.57.x.x 45.148.x.x 129.121.x.x 118.196.x.x
+
+== SERVICIOS PROPIOS ==
+ssh            disabled  active
+ssh.socket     enabled   active
+fail2ban       enabled   active
+nginx          enabled   active
+postgresql     enabled   active
+dexclub-api    enabled   active

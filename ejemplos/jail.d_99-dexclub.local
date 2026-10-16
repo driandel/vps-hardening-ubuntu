@@ -1,0 +1,11 @@
+# En fail2ban gana el ÚLTIMO archivo leído, al contrario que en SSH.
+# jail.d/ se lee después de jail.local, así que la configuración propia va
+# aquí y con un número alto para quedar la última.
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 3
+banaction = ufw
+
+[sshd]
+enabled = true

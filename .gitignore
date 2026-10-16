@@ -1,0 +1,23 @@
+﻿# Credenciales — nunca
+.env
+*.env
+!env.ejemplo
+*.pem
+*.key
+*.p8
+*.jks
+*.keystore
+key.properties
+.pgpass
+id_ed25519*
+id_rsa*
+
+# Volcados de la base de datos
+*.sql.gz
+*.dump
+dexclub_*.sql
+copias/
+
+# Ruido de Windows
+Thumbs.db
+desktop.ini
