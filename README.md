@@ -28,11 +28,14 @@ flowchart LR
     bak["Copia diaria<br/>14 días, restauración probada"]
   end
 
+  pc["Equipo externo<br/>60 días, suma de control verificada"]
+
   net -->|443| ngx
   net -->|22| ssh
   ngx --> api
   api --> db
   db --> bak
+  bak -.->|"se descarga a diario"| pc
 ```
 
 ---
@@ -547,9 +550,53 @@ psql -h 127.0.0.1 -U <usuario_bd> -d prueba_restaura -c "\dt"   # 13 tablas
 sudo -u postgres psql -c "DROP DATABASE prueba_restaura;"
 ```
 
-**Pendiente, y conviene decirlo:** estas copias viven en el mismo disco que
-la base de datos. Una copia que solo existe en la máquina que puede fallar
-no es una copia. El siguiente paso es descargarlas fuera.
+### Fuera del servidor
+
+Lo anterior deja las copias en el mismo disco que la base de datos, y una
+copia que solo existe en la máquina que puede fallar no es una copia. Se
+descargan a diario a un equipo propio.
+
+**El equipo tira; el servidor no empuja.** Al revés, ese equipo tendría que
+aceptar conexiones entrantes y habría que abrirle un puerto al router: se
+ampliaría la superficie de ataque de una red doméstica para proteger un
+servidor. Tirando desde fuera, el servidor no guarda ninguna credencial del
+destino, y quien lo comprometa no alcanza las copias ya descargadas ni
+puede borrarlas.
+
+**Una clave sin frase de paso, pero que solo sabe hacer una cosa.** Una
+tarea programada no puede escribir una frase de paso, así que la clave que
+usa va sin ella. Eso solo es aceptable si quien la robe no puede hacer nada
+con ella, y de eso se encarga un comando forzado en `authorized_keys`:
+
+```
+command="/usr/bin/tar -czf - -C /home/<usuario>/copias --exclude='*.sh' .",restrict ssh-ed25519 AAAA... copias
+```
+
+Con esa línea, quien se conecte con esa clave **no obtiene una sesión**:
+pida lo que pida, el servidor ejecuta ese `tar` y devuelve el contenido de
+la carpeta de copias. `restrict` apaga el resto — sin terminal, sin reenvío
+de puertos, sin agente.
+
+**La comprobación es pedirle otra cosa:**
+
+```bash
+ssh copias-dexclub "ls -la /etc"
+# devuelve el mismo tar, no un listado de /etc
+```
+
+**Del lado del equipo** (`ejemplos/traer-copias.ps1`): descarga, extrae y
+**descomprime cada copia entera para validar su suma de control** — mirar
+los dos primeros bytes solo diría que *parece* un `.gz`. Guarda 60 días,
+más que los 14 del servidor, así que el equipo externo es además el archivo
+largo: conserva copias que allí ya se borraron.
+
+Y si la copia más reciente tiene más de dos días, **falla a propósito**. El
+riesgo real no es que esto reviente, es que deje de funcionar en silencio y
+no se note hasta el día que haya que restaurar.
+
+**Lo que sigue pendiente:** todo esto vive en un solo equipo. Falta una
+tercera ubicación fuera de casa, y entonces habrá que cifrarlas antes de
+que salgan: llevan correos y hashes de contraseña de usuarios.
 
 ---
 
@@ -676,11 +723,11 @@ respuesta correcta a otra pregunta.
 | Aplicación | — | Servicio aislado, arranca sola |
 | Tráfico | — | HTTPS obligatorio, renovación automática |
 | Fuerza bruta web | — | 5 intentos/minuto en rutas de cuenta |
-| Copias | Ninguna | Diarias, rotadas y con restauración probada |
+| Copias | Ninguna | Diarias, rotadas, con restauración probada y descargadas fuera |
 
 ### Lo que queda pendiente
 
-- Sacar las copias fuera del servidor.
+- Una tercera copia fuera de casa, cifrada antes de salir del equipo.
 - Cárceles de fail2ban para nginx, cuando haya tráfico real que analizar.
 - Revisar los registros a los pocos días: qué llega, qué se bloquea y si
   algo legítimo está cayendo por error.
@@ -698,6 +745,7 @@ vps-hardening-ubuntu/
 │   ├── nginx-dexclub-api.conf
 │   ├── dexclub-api.service
 │   ├── copia.sh
+│   ├── traer-copias.ps1      descarga al equipo externo
 │   └── env.ejemplo           con valores falsos
 └── estados/
     ├── estado-inicial.txt
