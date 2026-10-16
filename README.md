@@ -30,7 +30,7 @@ flowchart LR
 
   pc["Equipo externo<br/>60 días, suma de control verificada"]
 
-  net -->|443| ngx
+  net -->|"443 · 80 redirige"| ngx
   net -->|22| ssh
   ngx --> api
   api --> db
