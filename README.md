@@ -23,7 +23,7 @@ flowchart LR
   subgraph vps["VPS — ufw: solo 22, 80 y 443 abiertos"]
     ssh["SSH<br/>solo clave, root bloqueado<br/>fail2ban: 3 intentos, 1 h"]
     ngx["nginx<br/>HTTPS + cabeceras de seguridad<br/>5 peticiones/min en las rutas de cuenta"]
-    api["API FastAPI<br/>servicio systemd aislado<br/>escucha en 127.0.0.1:8000"]
+    api["API FastAPI<br/>servicio systemd aislado<br/>escucha en 127.0.0.1:8000<br/>8 fallos de login / 15 min"]
     db[("PostgreSQL<br/>escucha en 127.0.0.1:5432")]
     bak["Copia diaria<br/>14 días, restauración probada"]
   end
@@ -484,19 +484,72 @@ normal.
 # en nginx.conf, dentro de http
 limit_req_zone $binary_remote_addr zone=cuentas:10m rate=5r/m;
 
-# en el sitio, para /login y /registro
+# 429 en vez del 503 que nginx devuelve por defecto. Un 503 significa "el
+# servidor está roto" e invita al cliente a reintentar; 429 es "vas muy
+# rápido", que es lo que pasa de verdad.
+limit_req_status 429;
+
+# en el sitio, en /login, /registro y /recuperar
 limit_req zone=cuentas burst=3 nodelay;
 ```
 
 Cinco por minuto con margen de tres. Una persona que se equivoca de
 contraseña nunca llega ahí; un ataque por fuerza bruta, a la primera.
 
-**Comprobación:**
+**La IP real tiene que llegar a la API**, o el límite que lleva ella por
+dentro contaría todas las peticiones como si vinieran del mismo sitio:
+
+```nginx
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+Esa cabecera solo es de fiar porque la pone este nginx y la API escucha en
+`127.0.0.1`. Si se pudiera llegar a ella directamente, cualquiera se la
+inventaría y se saltaría el límite poniendo una IP distinta en cada
+intento.
+
+### Dos límites, y no sobra ninguno
+
+nginx frena el **ritmo**: corta una ráfaga, pero se reabre en cuanto bajas
+a una petición cada doce segundos. Eso deja pasar al que prueba despacio,
+que es justo el patrón que roba cuentas.
+
+Por eso la API lleva el suyo, que cuenta **volumen**: ocho fallos en
+quince minutos, por cuenta y por IP. Los fallos se apuntan exista o no la
+cuenta — si solo contaran los de cuentas reales, el 429 revelaría qué
+correos están registrados, que es lo que evita el mensaje común del login.
+
+Las dos devuelven 429, así que la aplicación las trata igual venga de
+donde venga.
+
+**Comprobación de la capa de nginx.** Sin cuerpo en la petición la API
+responde 422 antes de mirar nada, así que aquí solo se está probando
+nginx:
 
 ```bash
 for i in $(seq 1 10); do curl -s -o /dev/null -w "%{http_code} " -X POST https://api.<dominio>/login; done
-# 422 422 422 422 422 422 422 422 503 503
+# 422 422 422 422 429 429 429 429 429 429
 ```
+
+Pasan cuatro —la primera más las tres del `burst`— y el resto se corta.
+
+**Y la de la API**, con cuerpo válido y despacio, para que las peticiones
+lleguen a atravesar nginx:
+
+```bash
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "%{http_code} " -X POST https://api.<dominio>/login \
+    -H 'Content-Type: application/json' \
+    -d '{"correo":"prueba@ejemplo.com","clave":"malamalamala"}'
+  sleep 13
+done
+# 401 401 401 401 401 401 401 401 429 429
+```
+
+> Cada ráfaga deja el cubo de nginx vacío unos minutos: 5r/m repone un
+> hueco cada doce segundos. Dos pruebas seguidas dan resultados distintos
+> sin que nada esté mal, y conviene usar un correo que no se haya usado
+> antes o responderá el contador de la API por el de nginx.
 
 Y las cabeceras:
 
@@ -722,7 +775,7 @@ respuesta correcta a otra pregunta.
 | Base de datos | — | Solo en local, usuario sin privilegios |
 | Aplicación | — | Servicio aislado, arranca sola |
 | Tráfico | — | HTTPS obligatorio, renovación automática |
-| Fuerza bruta web | — | 5 intentos/minuto en rutas de cuenta |
+| Fuerza bruta web | — | 5 intentos/minuto en nginx y 8 fallos cada 15 min en la API |
 | Copias | Ninguna | Diarias, rotadas, con restauración probada y descargadas fuera |
 
 ### Lo que queda pendiente
