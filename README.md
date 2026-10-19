@@ -6,7 +6,7 @@ servidor guarda las cuentas y sincroniza la colección entre
 dispositivos.
 
 No es un tutorial copiado: es lo que hice, en el orden en que lo hice, con
-las comprobaciones que demuestran que cada cosa funciona y **los cuatro
+las comprobaciones que demuestran que cada cosa funciona y **los cinco
 tropiezos de configuración** que me encontré por el camino, que
 probablemente sea lo más útil de todo el documento.
 
@@ -655,7 +655,7 @@ que salgan: llevan correos y hashes de contraseña de usuarios.
 
 ## 11. Incidencias
 
-La parte más útil del documento. Cuatro tropiezos, y **una lección
+La parte más útil del documento. Cinco tropiezos, y **una lección
 común**.
 
 ### 1. La configuración de SSH que no se aplicaba
@@ -730,8 +730,8 @@ systemctl is-enabled ssh.socket   # enabled
 systemctl is-active  ssh.socket   # active
 ```
 
-**Por qué lo cuento aunque no rompiera nada.** Es el único de los cuatro
-que no me costó tiempo, y es el que más me podría haber costado: la
+**Por qué lo cuento aunque no rompiera nada.** Es el único que no me
+costó tiempo, y es el que más me podría haber costado: la
 reacción natural ante un `disabled` es habilitar `ssh.service`, y se
 acaba con dos unidades peleándose por el mismo puerto. La comprobación de
 verdad ya estaba hecha sin saberlo, en el reinicio del punto 8: SSH
@@ -741,10 +741,52 @@ volvió solo.
 estado, que ahora pregunta por las dos unidades para que la diferencia se
 vea en vez de confundir.
 
+### 5. Las cabeceras que no llegaban a una ruta
+
+**Qué pasó.** Las cuatro cabeceras de seguridad están declaradas a nivel de
+`server`, así que las hereda todo el sitio. Al añadir una caché al archivo
+de precios —una sola línea, `add_header Cache-Control ...` dentro de su
+`location`— esa ruta dejó de enviarlas.
+
+**Por qué.** En nginx, `add_header` **no se acumula**: un bloque hereda las
+cabeceras del nivel de arriba *solo si no declara ninguna propia*. En
+cuanto declara una, pierde todas las heredadas. Está documentado, pero es
+lo contrario de lo que uno espera de una directiva que se llama "add".
+
+El resultado: `/precios.json` se servía sin HSTS, sin `nosniff`, sin
+`Referrer-Policy` y sin `X-Frame-Options`, mientras el resto del sitio sí
+las llevaba. Y es la ruta con más tráfico de todas: la piden todas las
+instalaciones de la aplicación, una vez al día.
+
+**Cómo se detectó.** Mirando la respuesta, no la configuración. Dos rutas
+del mismo sitio contestando distinto:
+
+```bash
+curl -s -D - -o /dev/null https://api.<dominio>/precios.json
+# Cache-Control: public, max-age=3600
+# (y nada más)
+
+curl -s -D - -o /dev/null https://api.<dominio>/estado
+# Strict-Transport-Security: max-age=31536000; includeSubDomains
+# X-Content-Type-Options: nosniff
+# Referrer-Policy: no-referrer
+# X-Frame-Options: DENY
+```
+
+**Solución.** Repetir las cuatro dentro del `location`. Es duplicación, y
+es la que hay: lo único que evita repetirlas es un módulo que no viene
+compilado de serie.
+
+**Lo que lo hacía difícil de ver.** `nginx -t` pasa. No hay ningún aviso en
+el registro. Y el archivo leído de arriba abajo parece correcto, porque las
+cabeceras están ahí, en el bloque de más arriba. Nada falla: simplemente
+una ruta responde distinto al resto, y eso no se ve si no se pregunta por
+esa ruta en concreto.
+
 ### La lección común
 
-Las cuatro veces lo que yo creía y lo que hacía la máquina no coincidían,
-y las cuatro se destaparon igual: **preguntándole al programa qué
+Las cinco veces lo que yo creía y lo que hacía la máquina no coincidían.
+Las cuatro primeras se destaparon igual: **preguntándole al programa qué
 configuración tiene, en vez de leer el archivo.**
 
 ```bash
@@ -755,11 +797,24 @@ sudo ss -tulpn                    # qué escucha de verdad
 sudo ufw status verbose           # qué filtra de verdad
 ```
 
-Y dos conclusiones. Para cualquier servicio con directorios `.d`, **no des
+**La quinta no habría salido así.** `nginx -T` muestra la configuración
+efectiva, y ahí las cabeceras aparecen, correctamente, en el bloque
+`server`. Lo que no dice es que una ruta concreta no las vaya a enviar. Esa
+no es una pregunta sobre la configuración: es una pregunta sobre la
+respuesta.
+
+```bash
+curl -s -D - -o /dev/null https://api.<dominio>/<ruta>
+```
+
+Y tres conclusiones. Para cualquier servicio con directorios `.d`, **no des
 por hecho quién gana**: en SSH, el primero; en fail2ban, el último.
-Compruébalo siempre. Y antes de eso, **no des por hecho cómo se llama lo
-que quieres comprobar**: preguntarle a la unidad equivocada devuelve una
-respuesta correcta a otra pregunta.
+Compruébalo siempre. Antes de eso, **no des por hecho cómo se llama lo que
+quieres comprobar**: preguntarle a la unidad equivocada devuelve una
+respuesta correcta a otra pregunta. Y cuando lo que importa es lo que sale
+por el cable, **la configuración efectiva tampoco basta**: hay que pedirle
+al servidor lo mismo que le va a pedir un cliente y mirar lo que
+contesta.
 
 ---
 
